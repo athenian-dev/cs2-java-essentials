@@ -51,129 +51,19 @@
     background: none;
     padding: 0;
   }
+  @media (max-width: 480px){
+    body{
+      font-size: 21px;
+    }
+  }
 </style>
 </head>
 <body>
 
 <div id="app"></div>
 
+<script src="questions.js"></script>
 <script>
-  // ===================================================
-  // EDIT YOUR QUIZ HERE.
-  //
-  // Paste in your questions below.
-  //   - The question can be as many lines as you want — paste it in as-is.
-  //   - List each answer on its own line, starting with a dash: - Paris
-  //   - Mark the correct answer with a star instead of a dash: * Paris
-  //   - Separate each question from the next with a line containing just ---
-  //
-  // Optional, add these lines anywhere in a question's block:
-  //   code: yourcode      -> sets the URL code (?q=yourcode). Use a 4-digit
-  //                          number so it can't be easily guessed
-  //                          (e.g. code: 5839). If left out, one is
-  //                          generated for you automatically.
-  //   msg: Your message   -> sets the message shown when answered correctly.
-  //                          If left out, defaults to "Correct!"
-  //
-  // Every answer is automatically shown in a code/monospace style, so just
-  // type them as plain text — no need to add <code> tags yourself.
-  //
-  // For the question text, you can still paste in code snippets using
-  // <code>...</code>, e.g. "What does <code>1 + 1</code> equal?"
-  // ===================================================
-
-  const QUIZ_TEXT = `
-What is the correct evaluation of the following expressions?
-
-<code>String str1 = "Q.E.D.";
-String str2 = "Arcturan Megadonkey";
-String str3 = "Sirius Cybernetics Corporation";
-
-
-str1.indexOf("D")
-str3.substring(3, 7)</code>
-code: 1
-* 4         "ius "
-- 3         "ius C"
-- 5         "ius C"
-- 6         "rius"
----
-Translate these into logical tests that could be used in an if/else statement.
-    
-z is not greater than y's square root.
-y is positive.
-code: 2
-* !(z > Math.sqrt(y))         y > 0
-- z > !Math.sqrt(y)           y > 0
-- z > !Math.pow(y, 2)         y >= 0
-- !(z > Math.pow(y, 2))       y < 0
----
-Which of the following if statement headers uses the correct syntax?
-
-<code>I.   if x = 10 {
-
-II.  if [x == 10] {
-
-III. if (x => y) {</code>
-code: 3
-msg: Nice work!
-- I only
-- II only
-* III only
-- I and III
----
-What is wrong with this code?
-
-<code>Scanner console = new Scanner(System.in);
-
-System.out.print("What is your favorite color?");
-
-String name = console.next();
-
-if (name == "blue") {
-
-    System.out.println("Mine, too!");
-
-}</code>
-code: 4
-* Two strings cannot be compared with the "==" operator.
-- Scanner is not initialized.
-- The variable "name" should be named something else.
-- There is a syntax error.
----
-How many times will this loop run?
-<code>int x = 1;
-
-while (x < 100) {
-
-    System.out.print(x + " ");
-
-    x = x + 10;
-
-}</code>
-code: 5
-- 1
-* 10
-- 99
-- 100
----
-What is the value of each of the following Boolean expressions?
-
-<code>int x = 27;
-int y = –1;
-int z = 32;
-boolean b = false;
-
-b || true
-(x > y) && (y > z)</code>
-code: 6
-- true    true
-* true    false
-- false   true
-- false   false
-
-`;
-
   const QUESTIONS = parseQuiz(QUIZ_TEXT);
 
   function parseQuiz(text){
@@ -219,7 +109,6 @@ code: 6
 
   // How long (in seconds) someone has to wait after a wrong answer.
   const LOCK_SECONDS = 60;
-  // ===================================================
 
   const app = document.getElementById("app");
   const params = new URLSearchParams(window.location.search);

@@ -22,13 +22,15 @@
     /* Everything below only applies on a narrow screen, meaning a phone.
        A computer screen is left exactly as it was. */
     @media (max-width: 700px) {
-      body { font-size: 18px; margin: 12px; }
+      body { font-size: 24px; margin: 12px; }
       /* Room around each answer so a finger can hit it */
-      label { padding: 8px 0; }
+      label { padding: 10px 0; }
+      /* Bigger circles to match the bigger text */
+      input[type="radio"] { width: 22px; height: 22px; vertical-align: middle; }
       /* A Submit button big enough to tap */
-      #submitButton { font-size: 18px; padding: 10px 20px; }
+      #submitButton { font-size: 24px; padding: 14px 28px; }
       /* Slightly smaller code, so more of each line fits on the screen */
-      pre { font-size: 14px; }
+      pre { font-size: 17px; }
     }
   </style>
 </head>

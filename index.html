@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz</title>
+<style>
+  body{
+    font-size: 18px;
+    padding: 16px;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  h1{
+    font-size: 1.6em;
+  }
+  .question{
+    white-space: pre-wrap;
+  }
+  #options div{
+    margin: 12px 0;
+  }
+  #options input{
+    width: 24px;
+    height: 24px;
+    vertical-align: middle;
+  }
+  #options label{
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  button{
+    font-size: 1em;
+    padding: 10px 20px;
+    margin-top: 12px;
+  }
+  code{
+    font-family: monospace;
+    background: #eee;
+    padding: 2px 5px;
+    border-radius: 3px;
+    white-space: pre;
+  }
+  pre{
+    background: #eee;
+    padding: 10px;
+    border-radius: 3px;
+    overflow-x: auto;
+  }
+  pre code{
+    background: none;
+    padding: 0;
+  }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+  // ===================================================
+  // EDIT YOUR QUIZ HERE.
+  //
+  // Paste in your questions below.
+  //   - The question can be as many lines as you want — paste it in as-is.
+  //   - List each answer on its own line, starting with a dash: - Paris
+  //   - Mark the correct answer with a star instead of a dash: * Paris
+  //   - Separate each question from the next with a line containing just ---
+  //
+  // Optional, add these lines anywhere in a question's block:
+  //   code: yourcode      -> sets the URL code (?q=yourcode). Use a 4-digit
+  //                          number so it can't be easily guessed
+  //                          (e.g. code: 5839). If left out, one is
+  //                          generated for you automatically.
+  //   msg: Your message   -> sets the message shown when answered correctly.
+  //                          If left out, defaults to "Correct!"
+  //
+  // Every answer is automatically shown in a code/monospace style, so just
+  // type them as plain text — no need to add <code> tags yourself.
+  //
+  // For the question text, you can still paste in code snippets using
+  // <code>...</code>, e.g. "What does <code>1 + 1</code> equal?"
+  // ===================================================
+
+  const QUIZ_TEXT = `
+What is the correct evaluation of the following expressions?
+
+<code>String str1 = "Q.E.D.";
+String str2 = "Arcturan Megadonkey";
+String str3 = "Sirius Cybernetics Corporation";
+
+
+str1.indexOf("D")
+str3.substring(3, 7)</code>
+code: 1
+* 4         "ius "
+- 3         "ius C"
+- 5         "ius C"
+- 6         "rius"
+---
+Translate these into logical tests that could be used in an if/else statement.
+    
+z is not greater than y's square root.
+y is positive.
+code: 2
+* !(z > Math.sqrt(y))         y > 0
+- z > !Math.sqrt(y)           y > 0
+- z > !Math.pow(y, 2)         y >= 0
+- !(z > Math.pow(y, 2))       y < 0
+---
+Which of the following if statement headers uses the correct syntax?
+
+<code>I.   if x = 10 {
+
+II.  if [x == 10] {
+
+III. if (x => y) {</code>
+code: 3
+msg: Nice work!
+- I only
+- II only
+* III only
+- I and III
+---
+What is wrong with this code?
+
+<code>Scanner console = new Scanner(System.in);
+
+System.out.print("What is your favorite color?");
+
+String name = console.next();
+
+if (name == "blue") {
+
+    System.out.println("Mine, too!");
+
+}</code>
+code: 4
+* Two strings cannot be compared with the "==" operator.
+- Scanner is not initialized.
+- The variable "name" should be named something else.
+- There is a syntax error.
+---
+How many times will this loop run?
+<code>int x = 1;
+
+while (x < 100) {
+
+    System.out.print(x + " ");
+
+    x = x + 10;
+
+}</code>
+code: 5
+- 1
+* 10
+- 99
+- 100
+---
+What is the value of each of the following Boolean expressions?
+
+<code>int x = 27;
+int y = –1;
+int z = 32;
+boolean b = false;
+
+b || true
+(x > y) && (y > z)</code>
+code: 6
+- true    true
+* true    false
+- false   true
+- false   false
+
+`;
+
+  const QUESTIONS = parseQuiz(QUIZ_TEXT);
+
+  function parseQuiz(text){
+    const blocks = text.trim().split(/\n\s*-{3,}\s*\n/);
+
+    return blocks.map(block => {
+      const lines = block.split("\n");
+      const questionLines = [];
+      const answers = [];
+      let correctAnswer = null;
+      let code = null;
+      let correctMessage = "Correct!";
+
+      lines.forEach(line => {
+        const trimmed = line.trim();
+        const codeMatch = trimmed.match(/^code:\s*(.+)$/i);
+        const msgMatch = trimmed.match(/^msg:\s*(.+)$/i);
+        const correctMatch = line.match(/^\s*\*\s(.*)$/);
+        const answerMatch = line.match(/^\s*-\s(.*)$/);
+
+        if (codeMatch){
+          code = codeMatch[1].trim();
+        } else if (msgMatch){
+          correctMessage = msgMatch[1].trim();
+        } else if (correctMatch){
+          answers.push(correctMatch[1]);
+          correctAnswer = correctMatch[1];
+        } else if (answerMatch){
+          answers.push(answerMatch[1]);
+        } else {
+          questionLines.push(line);
+        }
+      });
+
+      if (!code){
+        code = Math.floor(1000 + Math.random() * 9000).toString();
+      }
+
+      const question = questionLines.join("\n").trim();
+      return { question, answers, correctAnswer, correctMessage, code };
+    });
+  }
+
+  // How long (in seconds) someone has to wait after a wrong answer.
+  const LOCK_SECONDS = 60;
+  // ===================================================
+
+  const app = document.getElementById("app");
+  const params = new URLSearchParams(window.location.search);
+  const qParam = params.get("q");
+  const qIndex = qParam ? QUESTIONS.findIndex(q => q.code === qParam) : -1;
+
+  if (qIndex === -1) {
+    renderTitlePage();
+  } else {
+    renderQuestion(qIndex);
+  }
+
+  function renderTitlePage(){
+    app.innerHTML = `<h1>Scavenger Hunt</h1>`;
+  }
+
+  function renderQuestion(i){
+    const q = QUESTIONS[i];
+    app.innerHTML = `
+      <p class="question">${q.question}</p>
+      <div id="options"></div>
+      <button id="submitBtn">Submit</button>
+      <p class="feedback" id="feedback"></p>
+    `;
+
+    const optionsEl = document.getElementById("options");
+    const feedbackEl = document.getElementById("feedback");
+    const submitBtn = document.getElementById("submitBtn");
+    const lockKey = "quizLockUntil_" + q.code;
+
+    q.answers.forEach((answerText, idx) => {
+      const row = document.createElement("div");
+
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "answer";
+      radio.value = answerText;
+      radio.id = "answer" + idx;
+
+      const label = document.createElement("label");
+      label.setAttribute("for", "answer" + idx);
+      label.innerHTML = "<code>" + answerText + "</code>";
+
+      row.appendChild(radio);
+      row.appendChild(label);
+      optionsEl.appendChild(row);
+    });
+
+    submitBtn.addEventListener("click", () => {
+      const selected = optionsEl.querySelector('input[name="answer"]:checked');
+      if (!selected) return;
+      handleAnswer(selected.value);
+    });
+
+    function setInputsDisabled(disabled){
+      optionsEl.querySelectorAll("input").forEach(r => r.disabled = disabled);
+      submitBtn.disabled = disabled;
+    }
+
+    function handleAnswer(answerText){
+      if (answerText === q.correctAnswer){
+        setInputsDisabled(true);
+        feedbackEl.textContent = q.correctMessage;
+      } else {
+        setInputsDisabled(true);
+        const lockUntil = Date.now() + LOCK_SECONDS * 1000;
+        localStorage.setItem(lockKey, lockUntil);
+        startLockTimer(lockUntil);
+      }
+    }
+
+    function startLockTimer(lockUntil){
+      updateFromLockUntil();
+
+      const interval = setInterval(() => {
+        const remaining = updateFromLockUntil();
+        if (remaining <= 0){
+          clearInterval(interval);
+        }
+      }, 1000);
+
+      function updateFromLockUntil(){
+        const remaining = Math.ceil((lockUntil - Date.now()) / 1000);
+        if (remaining <= 0){
+          localStorage.removeItem(lockKey);
+          feedbackEl.textContent = "";
+          setInputsDisabled(false);
+          optionsEl.querySelectorAll("input").forEach(r => r.checked = false);
+          return 0;
+        }
+        feedbackEl.textContent = `Not quite. Try again in ${remaining}s.`;
+        return remaining;
+      }
+    }
+
+    // On load, check if this question is already locked from a previous attempt.
+    const existingLock = parseInt(localStorage.getItem(lockKey), 10);
+    if (existingLock && existingLock > Date.now()){
+      setInputsDisabled(true);
+      startLockTimer(existingLock);
+    }
+  }
+</script>
+
+</body>
+</html>

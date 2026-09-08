@@ -1,216 +1,276 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Quiz</title>
-<style>
-  body{
-    font-size: 20px;
-    padding: 16px;
-    max-width: 480px;
-    margin: 0 auto;
-  }
-  h1{
-    font-size: 1.6em;
-  }
-  .question{
-    white-space: pre-wrap;
-  }
-  #options div{
-    margin: 12px 0;
-  }
-  #options input{
-    width: 24px;
-    height: 24px;
-    vertical-align: middle;
-  }
-  #options label{
-    margin-left: 8px;
-    vertical-align: middle;
-  }
-  button{
-    font-size: 1em;
-    padding: 10px 20px;
-    margin-top: 12px;
-  }
-  code{
-    font-family: monospace;
-    background: #eee;
-    padding: 2px 5px;
-    border-radius: 3px;
-    white-space: pre;
-  }
-  pre{
-    background: #eee;
-    padding: 10px;
-    border-radius: 3px;
-    overflow-x: auto;
-  }
-  pre code{
-    background: none;
-    padding: 0;
-  }
-  @media (max-width: 480px){
-    body{
-      font-size: 23px;
+  <meta charset="utf-8">
+  <!-- Tells a phone to use its own width instead of pretending to be a
+       desktop screen and shrinking everything down. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scavenger Hunt</title>
+  <style>
+    /* Keep the line breaks and runs of spaces exactly as typed in
+       questions.js, in the question, the answers and the message alike */
+    #questionArea, #answerArea, #messageArea { white-space: pre-wrap; }
+    /* Put each answer on its own line */
+    label { display: block; }
+    /* A blank line between the question and the answers, and another
+       between the answers and the Submit button */
+    #answerArea { margin: 1em 0; }
+    /* Long lines of pasted code get a sideways scrollbar instead of
+       stretching the page */
+    pre { overflow-x: auto; }
+
+    /* Everything below only applies on a narrow screen, meaning a phone.
+       A computer screen is left exactly as it was. */
+    @media (max-width: 700px) {
+      body { font-size: 18px; margin: 12px; }
+      /* Room around each answer so a finger can hit it */
+      label { padding: 8px 0; }
+      /* A Submit button big enough to tap */
+      #submitButton { font-size: 18px; padding: 10px 20px; }
+      /* Slightly smaller code, so more of each line fits on the screen */
+      pre { font-size: 14px; }
     }
-  }
-</style>
+  </style>
 </head>
 <body>
 
-<div id="app"></div>
+<!-- These four spots on the page start out empty.
+     The code at the bottom fills them in. -->
+<div id="questionArea"></div>
+<div id="answerArea"></div>
+<button id="submitButton">Submit</button>
+<p id="messageArea"></p>
 
+<!-- Load your questions. This gives us QUESTIONS and LOCKOUT_SECONDS. -->
 <script src="questions.js"></script>
+
 <script>
-  const QUESTIONS = parseQuiz(QUIZ_TEXT);
+// Grab the four spots above so we can put text into them later.
+var questionArea = document.getElementById('questionArea')
+var answerArea = document.getElementById('answerArea')
+var submitButton = document.getElementById('submitButton')
+var messageArea = document.getElementById('messageArea')
 
-  function parseQuiz(text){
-    const blocks = text.trim().split(/\n\s*-{3,}\s*\n/);
 
-    return blocks.map(block => {
-      const lines = block.split("\n");
-      const questionLines = [];
-      const answers = [];
-      let correctAnswer = null;
-      let code = null;
-      let correctMessage = "Correct!";
+// ---------------------------------------------------------------------------
+// STEP 1: Cut the questions file into one chunk of text per question.
+//         A line of --- means "start a new question here".
+// ---------------------------------------------------------------------------
+var chunks = [[]]   // a list of questions, each one a list of lines
 
-      lines.forEach(line => {
-        const trimmed = line.trim();
-        const codeMatch = trimmed.match(/^code:\s*(.+)$/i);
-        const msgMatch = trimmed.match(/^msg:\s*(.+)$/i);
-        const correctMatch = line.match(/^\s*\*\s(.*)$/);
-        const answerMatch = line.match(/^\s*-\s(.*)$/);
-
-        if (codeMatch){
-          code = codeMatch[1].trim();
-        } else if (msgMatch){
-          correctMessage = msgMatch[1].trim();
-        } else if (correctMatch){
-          answers.push(correctMatch[1]);
-          correctAnswer = correctMatch[1];
-        } else if (answerMatch){
-          answers.push(answerMatch[1]);
-        } else {
-          questionLines.push(line);
-        }
-      });
-
-      if (!code){
-        code = Math.floor(1000 + Math.random() * 9000).toString();
-      }
-
-      const question = questionLines.join("\n").trim();
-      return { question, answers, correctAnswer, correctMessage, code };
-    });
-  }
-
-  // How long (in seconds) someone has to wait after a wrong answer.
-  const LOCK_SECONDS = 60;
-
-  const app = document.getElementById("app");
-  const params = new URLSearchParams(window.location.search);
-  const qParam = params.get("q");
-  const qIndex = qParam ? QUESTIONS.findIndex(q => q.code === qParam) : -1;
-
-  if (qIndex === -1) {
-    renderTitlePage();
+QUESTIONS.split('\n').forEach(function (line) {
+  if (line.trim().startsWith('---')) {
+    chunks.push([])                              // start a new question
   } else {
-    renderQuestion(qIndex);
+    chunks[chunks.length - 1].push(line)         // add to the current one
+  }
+})
+
+
+// ---------------------------------------------------------------------------
+// STEP 2: Read each chunk and sort its lines into name, question text,
+//         answers, and the "you got it right" message.
+// ---------------------------------------------------------------------------
+function readQuestion(lines) {
+  var question = {
+    name: '',                    // set by a "# name" line
+    text: [],                    // every line without a marker
+    answers: [],                 // set by "- wrong" and "* correct" lines
+    correctMessage: 'Correct!'   // replaced by a "> message" line
   }
 
-  function renderTitlePage(){
-    app.innerHTML = `<h1>Scavenger Hunt</h1>`;
+  // A line of ~~~ starts a block of code, and another one ends it. Inside a
+  // code block nothing is treated as a marker, so pasted code is left alone.
+  var insideCodeBlock = false
+
+  lines.forEach(function (line) {
+    var marker = line.trim().charAt(0)          // the first character
+    var rest = line.trim().substring(1).trim()  // everything after it
+
+    if (line.trim() === '~~~') {
+      insideCodeBlock = !insideCodeBlock
+      question.text.push(line)
+    } else if (insideCodeBlock) {
+      question.text.push(line)                  // a line of code: keep it as is
+    } else if (marker === '#') {
+      question.name = rest.toLowerCase()
+    } else if (marker === '*') {
+      question.answers.push({ text: rest, isCorrect: true })
+    } else if (marker === '-') {
+      question.answers.push({ text: rest, isCorrect: false })
+    } else if (marker === '>') {
+      question.correctMessage = rest
+    } else {
+      question.text.push(line)                  // an ordinary question line
+    }
+  })
+
+  // Glue the question's own lines back together into one piece of text.
+  question.text = question.text.join('\n').trim()
+  return question
+}
+
+var questions = []
+chunks.forEach(function (lines) {
+  var question = readQuestion(lines)
+  // Ignore empty chunks, so blank space in questions.js doesn't count as one.
+  if (question.answers.length > 0) questions.push(question)
+})
+
+
+// ---------------------------------------------------------------------------
+// STEP 3: Work out which question this web address is asking for.
+//         The part after the # is the request, so index.html#bench asks
+//         for "bench" and index.html#2 asks for the second question.
+// ---------------------------------------------------------------------------
+var request = decodeURIComponent(window.location.hash.replace('#', '')).trim().toLowerCase()
+
+function findQuestion(request) {
+  var found = null
+
+  // First try to match the name on a "# name" line.
+  questions.forEach(function (question) {
+    if (question.name !== '' && question.name === request) found = question
+  })
+  if (found) return found
+
+  // Otherwise, if they asked for a number, count down the list.
+  var number = Number(request)
+  if (number >= 1 && number <= questions.length) return questions[number - 1]
+
+  return null   // nothing was asked for, or the name was not found
+}
+
+var currentQuestion = findQuestion(request)
+
+
+// ---------------------------------------------------------------------------
+// STEP 4: Turn your text into something the page can show.
+//         Blocks of code between ~~~ lines are shown exactly as pasted.
+//         In ordinary text, **this** becomes bold and ~this~ becomes code.
+// ---------------------------------------------------------------------------
+
+// Make every character harmless, so a < or & you typed shows up on the page
+// exactly as you typed it instead of being read as part of the page.
+function makeSafe(text) {
+  return text
+    .split('&').join('&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;')
+}
+
+function formatText(text) {
+  var result = ''
+
+  // Cut the text at every ~~~ line. The pieces then alternate: ordinary text,
+  // code block, ordinary text, code block... so every second piece is code.
+  var pieces = text.split(/^[ \t]*~~~[ \t]*$/m)
+
+  pieces.forEach(function (piece, position) {
+    var isCodeBlock = position % 2 === 1
+
+    if (isCodeBlock) {
+      // Nothing inside a code block is treated as a mark: it is shown as is.
+      // Only the blank lines left behind by the ~~~ lines are removed, so the
+      // indenting of the code itself is untouched.
+      result += '<pre>' + makeSafe(piece.replace(/^\n+/, '').replace(/\n+$/, '')) + '</pre>'
+    } else {
+      var ordinary = makeSafe(piece)
+      // **like this** becomes bold, ~like this~ becomes code. [\s\S] stands
+      // for "any character at all, line breaks included", so a pair of marks
+      // can wrap around several lines.
+      ordinary = ordinary.replace(/\*\*([\s\S]+?)\*\*/g, '<b>$1</b>')
+      ordinary = ordinary.replace(/~([\s\S]+?)~/g, '<code>$1</code>')
+      result += ordinary
+    }
+  })
+
+  return result
+}
+
+
+// ---------------------------------------------------------------------------
+// STEP 5: Put the question on the page.
+// ---------------------------------------------------------------------------
+function showQuestion(question) {
+  questionArea.innerHTML = formatText(question.text)
+
+  question.answers.forEach(function (answer, position) {
+    // A "label" makes the answer text clickable, not just the little circle.
+    var row = document.createElement('label')
+    var circle = document.createElement('input')
+    var words = document.createElement('span')
+
+    circle.type = 'radio'
+    circle.name = 'answer'      // same name for all of them = only one can be picked
+    circle.value = position     // remembers which answer this circle belongs to
+    words.innerHTML = ' ' + formatText(answer.text)
+
+    row.appendChild(circle)
+    row.appendChild(words)
+    answerArea.appendChild(row)
+  })
+}
+
+
+// ---------------------------------------------------------------------------
+// STEP 6: The lockout after a wrong answer.
+//         The time the lockout ends is saved in the browser's own storage,
+//         so refreshing the page cannot skip the wait.
+// ---------------------------------------------------------------------------
+function updateLockout() {
+  var endTime = Number(localStorage.getItem('lockoutEndsAt'))
+  var millisecondsLeft = endTime - Date.now()
+
+  if (millisecondsLeft > 0) {
+    // Still locked: grey out the button and show the countdown.
+    submitButton.disabled = true
+    messageArea.textContent = 'Nope — wait ' + Math.ceil(millisecondsLeft / 1000) + 's'
+    setTimeout(updateLockout, 100)   // check again in a tenth of a second
+  } else {
+    // Time is up: let them try again.
+    submitButton.disabled = false
+    if (endTime > 0) {
+      localStorage.removeItem('lockoutEndsAt')
+      messageArea.textContent = ''
+    }
   }
+}
 
-  function renderQuestion(i){
-    const q = QUESTIONS[i];
-    app.innerHTML = `
-      <p class="question">${q.question}</p>
-      <div id="options"></div>
-      <button id="submitBtn">Submit</button>
-      <p class="feedback" id="feedback"></p>
-    `;
 
-    const optionsEl = document.getElementById("options");
-    const feedbackEl = document.getElementById("feedback");
-    const submitBtn = document.getElementById("submitBtn");
-    const lockKey = "quizLockUntil_" + q.code;
+// ---------------------------------------------------------------------------
+// STEP 7: What happens when Submit is clicked.
+// ---------------------------------------------------------------------------
+function checkAnswer() {
+  var picked = document.querySelector('input[name="answer"]:checked')
 
-    q.answers.forEach((answerText, idx) => {
-      const row = document.createElement("div");
-
-      const radio = document.createElement("input");
-      radio.type = "radio";
-      radio.name = "answer";
-      radio.value = answerText;
-      radio.id = "answer" + idx;
-
-      const label = document.createElement("label");
-      label.setAttribute("for", "answer" + idx);
-      label.innerHTML = "<code>" + answerText + "</code>";
-
-      row.appendChild(radio);
-      row.appendChild(label);
-      optionsEl.appendChild(row);
-    });
-
-    submitBtn.addEventListener("click", () => {
-      const selected = optionsEl.querySelector('input[name="answer"]:checked');
-      if (!selected) return;
-      handleAnswer(selected.value);
-    });
-
-    function setInputsDisabled(disabled){
-      optionsEl.querySelectorAll("input").forEach(r => r.disabled = disabled);
-      submitBtn.disabled = disabled;
-    }
-
-    function handleAnswer(answerText){
-      if (answerText === q.correctAnswer){
-        setInputsDisabled(true);
-        feedbackEl.textContent = q.correctMessage;
-      } else {
-        setInputsDisabled(true);
-        const lockUntil = Date.now() + LOCK_SECONDS * 1000;
-        localStorage.setItem(lockKey, lockUntil);
-        startLockTimer(lockUntil);
-      }
-    }
-
-    function startLockTimer(lockUntil){
-      updateFromLockUntil();
-
-      const interval = setInterval(() => {
-        const remaining = updateFromLockUntil();
-        if (remaining <= 0){
-          clearInterval(interval);
-        }
-      }, 1000);
-
-      function updateFromLockUntil(){
-        const remaining = Math.ceil((lockUntil - Date.now()) / 1000);
-        if (remaining <= 0){
-          localStorage.removeItem(lockKey);
-          feedbackEl.textContent = "";
-          setInputsDisabled(false);
-          optionsEl.querySelectorAll("input").forEach(r => r.checked = false);
-          return 0;
-        }
-        feedbackEl.textContent = `Not quite. Try again in ${remaining}s.`;
-        return remaining;
-      }
-    }
-
-    // On load, check if this question is already locked from a previous attempt.
-    const existingLock = parseInt(localStorage.getItem(lockKey), 10);
-    if (existingLock && existingLock > Date.now()){
-      setInputsDisabled(true);
-      startLockTimer(existingLock);
-    }
+  if (!picked) {
+    messageArea.textContent = 'Pick an answer'
+  } else if (currentQuestion.answers[picked.value].isCorrect) {
+    messageArea.innerHTML = formatText(currentQuestion.correctMessage)
+  } else {
+    // Wrong. Save the moment the lockout ends, then start the countdown.
+    localStorage.setItem('lockoutEndsAt', Date.now() + LOCKOUT_SECONDS * 1000)
+    updateLockout()
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// STEP 8: Start everything off.
+// ---------------------------------------------------------------------------
+if (currentQuestion) {
+  showQuestion(currentQuestion)
+  submitButton.onclick = checkAnswer
+  updateLockout()          // in case a lockout was still running before a refresh
+} else {
+  // No question was asked for, so just show the title.
+  questionArea.textContent = 'Scavenger Hunt'
+  submitButton.remove()
+}
+
+// If the address changes (someone scans a different code), load that question.
+window.onhashchange = function () { window.location.reload() }
 </script>
 
 </body>

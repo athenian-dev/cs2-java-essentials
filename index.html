@@ -123,24 +123,21 @@ chunks.forEach(function (lines) {
 // ---------------------------------------------------------------------------
 // STEP 3: Work out which question this web address is asking for.
 //         The part after the # is the request, so index.html#bench asks
-//         for "bench" and index.html#2 asks for the second question.
+//         for the question whose "# name" line says bench. Only a name
+//         works: there is no counting down the list, so nobody can walk
+//         through the hunt by trying #1, #2, #3.
 // ---------------------------------------------------------------------------
 var request = decodeURIComponent(window.location.hash.replace('#', '')).trim().toLowerCase()
 
 function findQuestion(request) {
   var found = null
 
-  // First try to match the name on a "# name" line.
+  // Match the name on a "# name" line, and nothing else.
   questions.forEach(function (question) {
     if (question.name !== '' && question.name === request) found = question
   })
-  if (found) return found
 
-  // Otherwise, if they asked for a number, count down the list.
-  var number = Number(request)
-  if (number >= 1 && number <= questions.length) return questions[number - 1]
-
-  return null   // nothing was asked for, or the name was not found
+  return found   // null if nothing was asked for, or the name was not found
 }
 
 var currentQuestion = findQuestion(request)

@@ -53,20 +53,29 @@ var answerArea = document.getElementById('answerArea')
 var submitButton = document.getElementById('submitButton')
 var messageArea = document.getElementById('messageArea')
 
+// These three must match the numbers at the top of build.py.
+var VERSION = 1
+var SALT_BYTES = 16
+var TAG_BYTES = 16
+
 
 // ---------------------------------------------------------------------------
 // STEP 1: Cut the questions file into one chunk of text per question.
 //         A line of --- means "start a new question here".
 // ---------------------------------------------------------------------------
-var chunks = [[]]   // a list of questions, each one a list of lines
+function splitIntoQuestions(text) {
+  var chunks = [[]]
 
-QUESTIONS.split('\n').forEach(function (line) {
-  if (line.trim().startsWith('---')) {
-    chunks.push([])                              // start a new question
-  } else {
-    chunks[chunks.length - 1].push(line)         // add to the current one
-  }
-})
+  text.split('\n').forEach(function (line) {
+    if (line.trim().startsWith('---')) {
+      chunks.push([])                            // start a new question
+    } else {
+      chunks[chunks.length - 1].push(line)       // add to the current one
+    }
+  })
+
+  return chunks
+}
 
 
 // ---------------------------------------------------------------------------
@@ -78,7 +87,8 @@ function readQuestion(lines) {
     name: '',                    // set by a "# name" line
     text: [],                    // every line without a marker
     answers: [],                 // set by "- wrong" and "* correct" lines
-    correctMessage: 'Correct!'   // replaced by a "> message" line
+    correctMessage: 'Correct!',  // replaced by a "> message" line
+    hiddenMessage: null          // set by a "!" line: see STEP 3
   }
 
   // A line of ~~~ starts a block of code, and another one ends it. Inside a
@@ -102,6 +112,8 @@ function readQuestion(lines) {
       question.answers.push({ text: rest, isCorrect: false })
     } else if (marker === '>') {
       question.correctMessage = rest
+    } else if (marker === '!') {
+      question.hiddenMessage = rest
     } else {
       question.text.push(line)                  // an ordinary question line
     }
@@ -112,39 +124,168 @@ function readQuestion(lines) {
   return question
 }
 
-var questions = []
-chunks.forEach(function (lines) {
-  var question = readQuestion(lines)
-  // Ignore empty chunks, so blank space in questions.js doesn't count as one.
-  if (question.answers.length > 0) questions.push(question)
-})
+
+// ---------------------------------------------------------------------------
+// STEP 3: Unscrambling, for a questions.js that has been locked.
+//
+//         A locked file has nothing readable in it. Each question is one
+//         "!q" line of jumble, and there are two locks on the way in:
+//
+//           the outer lock   A question is scrambled with a key built from
+//                            its own name, the number on its QR code. The
+//                            only name this page has is the one in the web
+//                            address, so index.html#612 can open the one
+//                            question at that spot and no others.
+//
+//           the inner lock   Inside a question no answer is marked correct.
+//                            The message is scrambled again with a key built
+//                            from the text of the correct answer, so this
+//                            page checks an answer by building that key out
+//                            of whatever was picked and seeing if it fits.
+//                            Nothing here knows the answer until then.
+//
+//         The recipe below is the same one build.py follows. A key is
+//         stretched slowly out of a secret, and gives us a "tag" that
+//         recognises the right key, and a "keystream" of unguessable bytes
+//         that the text was XORed with. XOR twice with the same bytes and
+//         you are back to the original text, which is how unscrambling works.
+// ---------------------------------------------------------------------------
+function toBytes(text) {
+  return new TextEncoder().encode(text)
+}
+
+function fromBase64(text) {
+  var characters = atob(text)
+  var bytes = new Uint8Array(characters.length)
+  for (var i = 0; i < characters.length; i++) bytes[i] = characters.charCodeAt(i)
+  return bytes
+}
+
+// Stretch a secret into a key. This is deliberately slow: it is the same
+// work repeated 100000 times, which nobody notices once but which makes
+// guessing at secrets a chore.
+async function deriveKey(secret, salt, iterations) {
+  var seed = await crypto.subtle.importKey('raw', toBytes(secret), 'PBKDF2',
+                                           false, ['deriveBits'])
+  var recipe = { name: 'PBKDF2', salt: salt, iterations: iterations, hash: 'SHA-256' }
+  return new Uint8Array(await crypto.subtle.deriveBits(recipe, seed, 256))
+}
+
+async function mixWithKey(key, text) {
+  var asKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' },
+                                            false, ['sign'])
+  return new Uint8Array(await crypto.subtle.sign('HMAC', asKey, toBytes(text)))
+}
+
+async function checkTag(key) {
+  return (await mixWithKey(key, 'check')).subarray(0, TAG_BYTES)
+}
+
+async function keystream(key, length) {
+  var stream = new Uint8Array(length)
+  var filled = 0
+  var counter = 0
+
+  while (filled < length) {
+    var piece = await mixWithKey(key, 'ks' + counter)
+    var take = Math.min(piece.length, length - filled)
+    stream.set(piece.subarray(0, take), filled)
+    filled += take
+    counter++
+  }
+
+  return stream
+}
+
+// Try a key on some scrambled bytes. Gives back the text if the key fits,
+// and null if it does not, which is how a wrong answer is spotted.
+async function unseal(key, sealed) {
+  var tag = await checkTag(key)
+
+  for (var i = 0; i < TAG_BYTES; i++) {
+    if (tag[i] !== sealed[i]) return null
+  }
+
+  var body = sealed.subarray(TAG_BYTES)
+  var stream = await keystream(key, body.length)
+  var plain = new Uint8Array(body.length)
+  for (var i = 0; i < body.length; i++) plain[i] = body[i] ^ stream[i]
+
+  return new TextDecoder().decode(plain)
+}
+
+// A "!" line carries the version and the number of repetitions it was made
+// with, then its salt, then the scrambled message.
+function readHiddenMessage(line) {
+  var raw = fromBase64(line)
+
+  return {
+    version: raw[0],
+    iterations: (raw[1] * 16777216) + (raw[2] * 65536) + (raw[3] * 256) + raw[4],
+    salt: raw.subarray(5, 5 + SALT_BYTES),
+    sealed: raw.subarray(5 + SALT_BYTES)
+  }
+}
+
+function isLocked(text) {
+  return text.split('\n').some(function (line) { return line.trim().startsWith('!lock ') })
+}
 
 
 // ---------------------------------------------------------------------------
-// STEP 3: Work out which question this web address is asking for.
-//         The part after the # is the request, so index.html#bench asks
-//         for the question whose "# name" line says bench. Only a name
-//         works: there is no counting down the list, so nobody can walk
-//         through the hunt by trying #1, #2, #3.
+// STEP 4: Work out which question this web address is asking for.
+//         The part after the # is the request, so index.html#612 asks for
+//         the question named 612. Only a name works: there is no counting
+//         down the list, so nobody can walk through the hunt by trying
+//         #1, #2, #3. In a locked file the name is also the key, so a name
+//         nobody has scanned yet opens nothing at all.
 // ---------------------------------------------------------------------------
 var request = decodeURIComponent(window.location.hash.replace('#', '')).trim().toLowerCase()
 
-function findQuestion(request) {
+// A plain, unlocked questions.js: read every question and match the name.
+function findInPlainFile(text, request) {
   var found = null
 
-  // Match the name on a "# name" line, and nothing else.
-  questions.forEach(function (question) {
-    if (question.name !== '' && question.name === request) found = question
+  splitIntoQuestions(text).forEach(function (lines) {
+    var question = readQuestion(lines)
+    if (question.answers.length > 0 && question.name !== '' && question.name === request) {
+      found = question
+    }
   })
 
-  return found   // null if nothing was asked for, or the name was not found
+  return found
 }
 
-var currentQuestion = findQuestion(request)
+// A locked questions.js: stretch the name into a key and try it on each
+// question in turn. Exactly one of them opens, unless the name is wrong.
+async function findInLockedFile(text, request) {
+  var header = null
+  var sealedQuestions = []
+
+  text.split('\n').forEach(function (line) {
+    var trimmed = line.trim()
+    if (trimmed.startsWith('!lock ')) {
+      header = trimmed.split(/\s+/)
+    } else if (trimmed.startsWith('!q ')) {
+      sealedQuestions.push(fromBase64(trimmed.substring(3).trim()))
+    }
+  })
+
+  if (header === null || Number(header[1]) !== VERSION) return null
+
+  var key = await deriveKey(request, fromBase64(header[3]), Number(header[2]))
+
+  for (var i = 0; i < sealedQuestions.length; i++) {
+    var opened = await unseal(key, sealedQuestions[i])
+    if (opened !== null) return readQuestion(opened.split('\n'))
+  }
+
+  return null
+}
 
 
 // ---------------------------------------------------------------------------
-// STEP 4: Turn your text into something the page can show.
+// STEP 5: Turn your text into something the page can show.
 //         Blocks of code between ~~~ lines are shown exactly as pasted.
 //         In ordinary text, **this** becomes bold and ~this~ becomes code.
 // ---------------------------------------------------------------------------
@@ -189,7 +330,7 @@ function formatText(text) {
 
 
 // ---------------------------------------------------------------------------
-// STEP 5: Put the question on the page.
+// STEP 6: Put the question on the page.
 // ---------------------------------------------------------------------------
 function showQuestion(question) {
   questionArea.innerHTML = formatText(question.text)
@@ -213,7 +354,7 @@ function showQuestion(question) {
 
 
 // ---------------------------------------------------------------------------
-// STEP 6: The lockout after a wrong answer.
+// STEP 7: The lockout after a wrong answer.
 //         The time the lockout ends is saved in the browser's own storage,
 //         so refreshing the page cannot skip the wait.
 // ---------------------------------------------------------------------------
@@ -236,37 +377,92 @@ function updateLockout() {
   }
 }
 
+function wrongAnswer() {
+  // Save the moment the lockout ends, then start the countdown.
+  localStorage.setItem('lockoutEndsAt', Date.now() + LOCKOUT_SECONDS * 1000)
+  updateLockout()
+}
+
 
 // ---------------------------------------------------------------------------
-// STEP 7: What happens when Submit is clicked.
+// STEP 8: What happens when Submit is clicked.
+//
+//         In a plain file the correct answer is marked, so this is a glance
+//         at that mark. In a locked file nothing is marked: the answer that
+//         was picked is stretched into a key, and if that key opens the
+//         hidden message then it was the right answer. Stretching a key
+//         takes a moment, so the button is greyed out while it happens.
 // ---------------------------------------------------------------------------
-function checkAnswer() {
+async function checkAnswer(question) {
   var picked = document.querySelector('input[name="answer"]:checked')
 
   if (!picked) {
     messageArea.textContent = 'Pick an answer'
-  } else if (currentQuestion.answers[picked.value].isCorrect) {
-    messageArea.innerHTML = formatText(currentQuestion.correctMessage)
+    return
+  }
+
+  var answer = question.answers[picked.value]
+
+  if (question.hiddenMessage === null) {
+    // A plain questions.js, the way it reads while you are editing it.
+    if (answer.isCorrect) {
+      messageArea.innerHTML = formatText(question.correctMessage)
+    } else {
+      wrongAnswer()
+    }
+    return
+  }
+
+  submitButton.disabled = true
+  messageArea.textContent = 'Checking…'
+
+  var hidden = readHiddenMessage(question.hiddenMessage)
+  var key = await deriveKey(question.name + '\n' + answer.text, hidden.salt, hidden.iterations)
+  var opened = await unseal(key, hidden.sealed)
+
+  if (opened === null) {
+    wrongAnswer()                       // the key did not fit: wrong answer
   } else {
-    // Wrong. Save the moment the lockout ends, then start the countdown.
-    localStorage.setItem('lockoutEndsAt', Date.now() + LOCKOUT_SECONDS * 1000)
-    updateLockout()
+    submitButton.disabled = false
+    // What was hidden is the whole "> message" line, so drop the > itself.
+    messageArea.innerHTML = formatText(opened.trim().substring(1).trim())
   }
 }
 
 
 // ---------------------------------------------------------------------------
-// STEP 8: Start everything off.
+// STEP 9: Start everything off.
 // ---------------------------------------------------------------------------
-if (currentQuestion) {
-  showQuestion(currentQuestion)
-  submitButton.onclick = checkAnswer
-  updateLockout()          // in case a lockout was still running before a refresh
-} else {
-  // No question was asked for, so just show the title.
-  questionArea.textContent = 'Scavenger Hunt'
-  submitButton.remove()
+async function start() {
+  var question = null
+
+  if (!isLocked(QUESTIONS)) {
+    question = findInPlainFile(QUESTIONS, request)
+  } else if (!window.crypto || !window.crypto.subtle) {
+    // Unscrambling needs the browser's own crypto, which it only hands out
+    // over https (and on localhost). Opening the file straight off a disk
+    // in some browsers lands here.
+    questionArea.textContent = 'Open this page over https and it will work.'
+    submitButton.remove()
+    return
+  } else if (request !== '') {
+    questionArea.textContent = 'Unlocking…'
+    question = await findInLockedFile(QUESTIONS, request)
+    questionArea.textContent = ''
+  }
+
+  if (question) {
+    showQuestion(question)
+    submitButton.onclick = function () { checkAnswer(question) }
+    updateLockout()        // in case a lockout was still running before a refresh
+  } else {
+    // No question was asked for, or no question answers to that name.
+    questionArea.textContent = 'Scavenger Hunt'
+    submitButton.remove()
+  }
 }
+
+start()
 
 // If the address changes (someone scans a different code), load that question.
 window.onhashchange = function () { window.location.reload() }
